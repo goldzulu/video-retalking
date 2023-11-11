@@ -46,7 +46,7 @@ warnings.filterwarnings("ignore")
 
 args = options()
 
-@stub.function(image=retalking_image)
+@stub.function(image=retalking_image, gpu="any")
 def process(infile, inaudio, outfile):    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print('[Info] Using {} for inference.'.format(device))
@@ -362,4 +362,4 @@ def datagen(frames, mels, full_frames, frames_pil, cox, infile):
 
 @stub.local_entrypoint()
 def main(infile, inaudio, outfile):
-    process(infile, inaudio, outfile)
+    process.remote(infile, inaudio, outfile)
