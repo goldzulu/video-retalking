@@ -12,8 +12,11 @@ stub = modal.Stub(name="video-retalking")
 #     modal.Image.from_registry("nvidia/cuda:11.1.1-cudnn8-devel-ubuntu20.04", add_python="3.8")
 #     .apt_install("git", "gcc", "build-essential", "ffmpeg")
 #     .run_commands(
-#         "git clone https://github.com/goldzulu/video-retalking.git .",
-#         "pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html",
+#         "git clone https://github.com/goldzulu/video-retalking.git",
+#         "cd video-retalking && cp -R ./* .."
+#     )
+#     .run_commands(
+#         # "pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html",
 #         "pip install -r requirements.txt"
 #     )
 #     .run_commands(
@@ -30,8 +33,10 @@ retalking_image = (
         "cd video-retalking && cp -R ./* .."
     )
     .run_commands(
+        "pip install --upgrade pip",
+        "pip install CMake",
         "pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html",
-        "pip install -r requirements.txt"
+        "pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple"
     )
     .run_commands(
         "pip install gdown",
