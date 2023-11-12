@@ -5,7 +5,7 @@ from PIL import Image
 from scipy.io import loadmat
 
 import modal
-from modal import Image
+# from modal import Image
 
 stub = modal.Stub(name="video-retalking")
 
@@ -27,7 +27,7 @@ retalking_image = (
     )
     .run_commands(
         "pip install gdown",
-        "gdown --id 18rhjMpxK8LVVxf7PI6XwOidt8Vouv_H0 --folder"
+        "gdown --id 18rhjMpxK8LVVxf7PI6XwOidt8Vouv_H0 --folder -O /root/checkpoints"
     )
 )
 
@@ -55,18 +55,27 @@ import warnings
 
 args = options()
 
-@stub.function(image=retalking_image, gpu="any")
+@stub.function(image=retalking_image, gpu="any",mounts=[modal.Mount.from_local_dir("./examples", remote_path="/root/examples"),modal.Mount.from_local_dir("./results", remote_path="/root/results")])
 def process(infile, inaudio, outfile):    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print('[Info] Using {} for inference.'.format(device))
     os.makedirs(os.path.join('temp', args.tmp_dir), exist_ok=True)
 
-    enhancer = FaceEnhancement(base_dir='checkpoints', size=512, model='GPEN-BFR-512', use_sr=False, \
+    enhancer = FaceEnhancement(base_dir='/checkpoints', size=512, model='GPEN-BFR-512', use_sr=False, \
                                sr_model='rrdb_realesrnet_psnr', channel_multiplier=2, narrow=1, device=device)
     restorer = GFPGANer(model_path='checkpoints/GFPGANv1.3.pth', upscale=1, arch='clean', \
                         channel_multiplier=2, bg_upsampler=None)
 
-    base_name = infile.split('/')[-1]
+    # print current directory
+    print('current directory:', os.getcwd())
+    
+    # print content of current directory
+    print('content of current directory:', os.listdir(os.getcwd()))
+    
+    # print the value of infile
+    print('infile:', infile)
+
+    base_name = infile.split('/')[-1]   
     if os.path.isfile(infile) and infile.split('.')[1] in ['jpg', 'png', 'jpeg']:
         args.static = True
     if not os.path.isfile(infile):
@@ -114,6 +123,7 @@ def process(infile, inaudio, outfile):
         lm = lm.reshape([len(full_frames), -1, 2])
        
     if not os.path.isfile('temp/'+base_name+'_coeffs.npy') or args.exp_img is not None or args.re_preprocess:
+        # net_recon = load_face3d_net('checkpoints/face3d_pretrain_epoch_20.pth', device)
         net_recon = load_face3d_net(args.face3d_net_path, device)
         lm3d_std = load_lm3d('checkpoints/BFM')
 
