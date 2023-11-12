@@ -10,8 +10,10 @@ from modal import Image
 stub = modal.Stub(name="video-retalking")
 
 retalking_image = (
-    modal.Image.from_registry("nvidia/cuda:11.1.1-cudnn8-devel-ubuntu20.04", add_python="3.8")
-    .apt_install("git", "gcc", "build-essential", "ffmpeg")
+    modal.Image.from_registry("nvidia/cuda:11.1.1-cudnn8-devel-ubuntu20.04", add_python="3.9")
+    # modal.Image.debian_slim(python_version="3.8")
+    .env({"CUDA_HOME": "/usr/local/cuda-11.1"})
+    .apt_install("git", "gcc", "build-essential", "ffmpeg", "wget", "cmake", "curl")
     .run_commands(
         "git clone https://github.com/goldzulu/video-retalking.git",
         "cd video-retalking && cp -R ./* ..",
@@ -19,56 +21,15 @@ retalking_image = (
     )
     .run_commands([
         "pip install --upgrade pip",
-        "pip install CMake",
         "pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html",
-        "pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple"],
-        gpu="any"
+        "pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple"
+    ], gpu="any"
     )
     .run_commands(
         "pip install gdown",
         "gdown --id 18rhjMpxK8LVVxf7PI6XwOidt8Vouv_H0 --folder"
     )
 )
-
-# retalking_image = ( Image.conda(python_version="3.8")
-#     .conda_install(["pytorch", "torchvision", "torchaudio", "pytorch-cuda","ffmpeg"],channels=["nvidia", "pytorch"])
-#     .run_commands(
-#         "git clone https://github.com/goldzulu/video-retalking.git",
-#         "cd video-retalking && cp -R ./* ..",
-#         "cd video-retalking && cp -R ./third_part /root/"
-#     )
-#     .run_commands(
-#         ["pip install -r --use-pep517 requirements.txt"],
-#         gpu="any"
-#     )
-#     .run_commands(
-#         "pip install gdown",
-#         "gdown --id 18rhjMpxK8LVVxf7PI6XwOidt8Vouv_H0 --folder"
-#     )
-# )
-
-
-# retalking_image = (
-#     modal.Image.debian_slim(python_version="3.8")
-#     .apt_install("git", "gcc", "build-essential", "ffmpeg")
-#     .run_commands(
-#         "git clone https://github.com/goldzulu/video-retalking.git",
-#         "cd video-retalking && cp -R ./* ..",
-#         "cd video-retalking && cp -R ./third_part /root/"
-#     )
-#     .run_commands([
-#         "pip install --upgrade pip",
-#         "pip install CMake",
-#         "pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html",
-#         "pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple"
-#     ], gpu="any"
-#     )
-#     .run_commands(
-#         "pip install gdown",
-#         "gdown --id 18rhjMpxK8LVVxf7PI6XwOidt8Vouv_H0 --folder"
-#     )
-# )
-
 
 sys.path.insert(0, 'third_part')
 sys.path.insert(0, 'third_part/GPEN')
