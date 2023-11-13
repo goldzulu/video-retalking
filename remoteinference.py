@@ -7,7 +7,12 @@ from scipy.io import loadmat
 import modal
 # from modal import Image
 
+volume = modal.NetworkFileSystem.new()
+
 stub = modal.Stub(name="video-retalking")
+
+TEMP_DIR = "/temp"
+LOCAL_OUTPUT_DIR = "/tmp/"
 
 retalking_image = (
     modal.Image.from_registry("nvidia/cuda:11.1.1-cudnn8-devel-ubuntu20.04", add_python="3.9")
@@ -55,13 +60,13 @@ import warnings
 
 args = options()
 
-@stub.function(image=retalking_image, gpu="any",mounts=[modal.Mount.from_local_dir("./examples", remote_path="/root/examples"),modal.Mount.from_local_dir("./results", remote_path="/root/results")])
+@stub.function(image=retalking_image, network_file_systems={TEMP_DIR: volume}, gpu="any",timeout=3600, mounts=[modal.Mount.from_local_dir("./examples", remote_path="/root/examples"),modal.Mount.from_local_dir("./results", remote_path="/root/results")])
 def process(infile, inaudio, outfile):    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print('[Info] Using {} for inference.'.format(device))
-    os.makedirs(os.path.join('temp', args.tmp_dir), exist_ok=True)
+    os.makedirs(os.path.join(TEMP_DIR, args.tmp_dir), exist_ok=True)
 
-    enhancer = FaceEnhancement(base_dir='/checkpoints', size=512, model='GPEN-BFR-512', use_sr=False, \
+    enhancer = FaceEnhancement(base_dir='checkpoints', size=512, model='GPEN-BFR-512', use_sr=False, \
                                sr_model='rrdb_realesrnet_psnr', channel_multiplier=2, narrow=1, device=device)
     restorer = GFPGANer(model_path='checkpoints/GFPGANv1.3.pth', upscale=1, arch='clean', \
                         channel_multiplier=2, bg_upsampler=None)
@@ -113,16 +118,16 @@ def process(infile, inaudio, outfile):
     frames_pil = [Image.fromarray(cv2.resize(frame,(256,256))) for frame in full_frames_RGB]
 
     # get the landmark according to the detected face.
-    if not os.path.isfile('temp/'+base_name+'_landmarks.txt') or args.re_preprocess:
+    if not os.path.isfile(TEMP_DIR + '/'+base_name+'_landmarks.txt') or args.re_preprocess:
         print('[Step 1] Landmarks Extraction in Video.')
         kp_extractor = KeypointExtractor()
-        lm = kp_extractor.extract_keypoint(frames_pil, './temp/'+base_name+'_landmarks.txt')
+        lm = kp_extractor.extract_keypoint(frames_pil, TEMP_DIR + '/' + base_name+'_landmarks.txt')
     else:
         print('[Step 1] Using saved landmarks.')
-        lm = np.loadtxt('temp/'+base_name+'_landmarks.txt').astype(np.float32)
+        lm = np.loadtxt(TEMP_DIR + '/' +base_name+'_landmarks.txt').astype(np.float32)
         lm = lm.reshape([len(full_frames), -1, 2])
        
-    if not os.path.isfile('temp/'+base_name+'_coeffs.npy') or args.exp_img is not None or args.re_preprocess:
+    if not os.path.isfile(TEMP_DIR + '/'+ base_name+'_coeffs.npy') or args.exp_img is not None or args.re_preprocess:
         # net_recon = load_face3d_net('checkpoints/face3d_pretrain_epoch_20.pth', device)
         net_recon = load_face3d_net(args.face3d_net_path, device)
         lm3d_std = load_lm3d('checkpoints/BFM')
@@ -149,10 +154,10 @@ def process(infile, inaudio, outfile):
                                          pred_coeff['gamma'], pred_coeff['trans'], trans_params[None]], 1)
             video_coeffs.append(pred_coeff)
         semantic_npy = np.array(video_coeffs)[:,0]
-        np.save('temp/'+base_name+'_coeffs.npy', semantic_npy)
+        np.save(TEMP_DIR+ '/'+base_name+'_coeffs.npy', semantic_npy)
     else:
         print('[Step 2] Using saved coeffs.')
-        semantic_npy = np.load('temp/'+base_name+'_coeffs.npy').astype(np.float32)
+        semantic_npy = np.load(TEMP_DIR + '/' + base_name+'_coeffs.npy').astype(np.float32)
 
     # generate the 3dmm coeff from a single image
     if args.exp_img is not None and ('.png' in args.exp_img or '.jpg' in args.exp_img):
@@ -162,7 +167,7 @@ def process(infile, inaudio, outfile):
         
         W, H = exp_pil.size
         kp_extractor = KeypointExtractor()
-        lm_exp = kp_extractor.extract_keypoint([exp_pil], 'temp/'+base_name+'_temp.txt')[0]
+        lm_exp = kp_extractor.extract_keypoint([exp_pil], TEMP_DIR + '/' +base_name+'_temp.txt')[0]
         if np.mean(lm_exp) == -1:
             lm_exp = (lm3d_std[:, :2] + 1) / 2.
             lm_exp = np.concatenate(
@@ -185,7 +190,7 @@ def process(infile, inaudio, outfile):
     # load DNet, model(LNet and ENet)
     D_Net, model = load_model(args, device)
 
-    if not os.path.isfile('temp/'+base_name+'_stablized.npy') or args.re_preprocess:
+    if not os.path.isfile(TEMP_DIR + '/'+base_name+'_stablized.npy') or args.re_preprocess:
         imgs = []
         for idx in tqdm(range(len(frames_pil)), desc="[Step 3] Stabilize the expression In Video:"):
             if args.one_shot:
@@ -203,17 +208,17 @@ def process(infile, inaudio, outfile):
                 output = D_Net(source_img, coeff)
             img_stablized = np.uint8((output['fake_image'].squeeze(0).permute(1,2,0).cpu().clamp_(-1, 1).numpy() + 1 )/2. * 255)
             imgs.append(cv2.cvtColor(img_stablized,cv2.COLOR_RGB2BGR)) 
-        np.save('temp/'+base_name+'_stablized.npy',imgs)
+        np.save(TEMP_DIR + '/'+base_name+'_stablized.npy',imgs)
         del D_Net
     else:
         print('[Step 3] Using saved stabilized video.')
-        imgs = np.load('temp/'+base_name+'_stablized.npy')
+        imgs = np.load(TEMP_DIR + '/'+base_name+'_stablized.npy')
     torch.cuda.empty_cache()
 
     if not inaudio.endswith('.wav'):
-        command = 'ffmpeg -loglevel error -y -i {} -strict -2 {}'.format(inaudio, 'temp/{}/temp.wav'.format(args.tmp_dir))
+        command = 'ffmpeg -loglevel error -y -i {} -strict -2 {}'.format(inaudio, TEMP_DIR +'/{}/temp.wav'.format(args.tmp_dir))
         subprocess.call(command, shell=True)
-        inaudio = 'temp/{}/temp.wav'.format(args.tmp_dir)
+        inaudio = TEMP_DIR +'/{}/temp.wav'.format(args.tmp_dir)
     wav = audio.load_wav(inaudio, 16000)
     mel = audio.melspectrogram(wav)
     if np.isnan(mel.reshape(-1)).sum() > 0:
@@ -238,10 +243,10 @@ def process(infile, inaudio, outfile):
         img = imgs[idx]
         pred, _, _ = enhancer.process(img, img, face_enhance=True, possion_blending=False)
         imgs_enhanced.append(pred)
-    gen = datagen(imgs_enhanced.copy(), mel_chunks, full_frames, None, (oy1,oy2,ox1,ox2))
+    gen = datagen.remote_gen(imgs_enhanced.copy(), mel_chunks, full_frames, None, (oy1,oy2,ox1,ox2), infile)
 
     frame_h, frame_w = full_frames[0].shape[:-1]
-    out = cv2.VideoWriter('temp/{}/result.mp4'.format(args.tmp_dir), cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_w, frame_h))
+    out = cv2.VideoWriter(TEMP_DIR +'/{}/result.mp4'.format(args.tmp_dir), cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_w, frame_h))
     
     if args.up_face != 'original':
         instance = GANimationModel()
@@ -308,13 +313,17 @@ def process(infile, inaudio, outfile):
     
     if not os.path.isdir(os.path.dirname(outfile)):
         os.makedirs(os.path.dirname(outfile), exist_ok=True)
-    command = 'ffmpeg -loglevel error -y -i {} -i {} -strict -2 -q:v 1 {}'.format(inaudio, 'temp/{}/result.mp4'.format(args.tmp_dir), outfile)
+    command = 'ffmpeg -loglevel error -y -i {} -i {} -strict -2 -q:v 1 {}'.format(inaudio, TEMP_DIR +'/{}/result.mp4'.format(args.tmp_dir), outfile)
     subprocess.call(command, shell=platform.system() != 'Windows')
     print('outfile:', outfile)
+    
+    # Return the full image data
+    with open(outfile, "rb") as f:
+        return os.path.basename(outfile), f.read()
 
 
 # frames:256x256, full_frames: original size
-@stub.function()
+@stub.function(image=retalking_image, gpu="any", timeout=1200, network_file_systems={TEMP_DIR: volume})
 def datagen(frames, mels, full_frames, frames_pil, cox, infile):
     img_batch, mel_batch, frame_batch, coords_batch, ref_batch, full_frame_batch = [], [], [], [], [], []
     base_name = infile.split('/')[-1]
@@ -324,7 +333,7 @@ def datagen(frames, mels, full_frames, frames_pil, cox, infile):
     # original frames
     kp_extractor = KeypointExtractor()
     fr_pil = [Image.fromarray(frame) for frame in frames]
-    lms = kp_extractor.extract_keypoint(fr_pil, 'temp/'+base_name+'x12_landmarks.txt')
+    lms = kp_extractor.extract_keypoint(fr_pil, TEMP_DIR + '/' +base_name+'x12_landmarks.txt')
     frames_pil = [ (lm, frame) for frame,lm in zip(fr_pil, lms)] # frames is the croped version of modified face
     crops, orig_images, quads  = crop_faces(image_size, frames_pil, scale=1.0, use_fa=True)
     inverse_transforms = [calc_alignment_coefficients(quad + 0.5, [[0, 0], [0, image_size], [image_size, image_size], [image_size, 0]]) for quad in quads]
@@ -381,4 +390,8 @@ def datagen(frames, mels, full_frames, frames_pil, cox, infile):
 
 @stub.local_entrypoint()
 def main(infile, inaudio, outfile):
-    process.remote(infile, inaudio, outfile)
+    fn, video_data = process.remote(infile, inaudio, outfile)
+    abs_fn = os.path.join(LOCAL_OUTPUT_DIR, fn)
+    print(f"writing results to {abs_fn}")
+    with open(abs_fn, "wb") as f:
+        f.write(video_data)
